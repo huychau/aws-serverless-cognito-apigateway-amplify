@@ -10,6 +10,30 @@ Build a React User Management app use AWS Cognito, Amplify, API Gateway, Lambda,
 - Amplify CLI
 - Serverless CLI
 
+## Getting Started
+
+Access `serverless/` first
+
+### AWS - Config Credentials
+```
+serverless config credentials --provider provider --key key --secret secret
+```
+
+### Login to Serverless
+```
+sls login
+```
+
+### Deploy services
+```
+sls deploy
+```
+
+### Remove services
+```
+sls remove
+```
+
 ## Notes
 
 ### Cognito get user token
