@@ -1,0 +1,190 @@
+service: user-management
+# app and org for use with dashboard.serverless.com
+app: user-management
+org: huychau
+
+# You can pin your service to only deploy with a specific Serverless version
+# Check out our docs for more details
+frameworkVersion: '2'
+
+# Provider configurations
+provider:
+  name: aws
+  runtime: python3.8
+  lambdaHashingVersion: 20201221
+  region: ap-southeast-1
+  environment:
+    DYNAMODB_TABLE: ${self:service}-${opt:stage, self:provider.stage}
+    FRONTEND_HOST: http://localhost:3000
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}"
+
+# Function configurations
+functions:
+
+  list:
+    handler: users/list.list
+    events:
+    - http:
+        path: /users
+        method: get
+        cors: true
+        authorizer:
+          type: COGNITO_USER_POOLS
+          authorizerId: !Ref ApiGatewayAuthorizer
+
+  create:
+    handler: users/create.create
+    events:
+    - http:
+        path: /users
+        method: post
+        cors: true
+        authorizer:
+          type: COGNITO_USER_POOLS
+          authorizerId: !Ref ApiGatewayAuthorizer
+
+  get:
+    handler: users/get.get
+    events:
+    - http:
+        path: /users/{id}
+        method: get
+        cors: true
+        authorizer:
+          type: COGNITO_USER_POOLS
+          authorizerId: !Ref ApiGatewayAuthorizer
+
+  update:
+    handler: users/update.update
+    events:
+    - http:
+        path: /users/{id}
+        method: put
+        authorizer:
+          type: COGNITO_USER_POOLS
+          authorizerId: !Ref ApiGatewayAuthorizer
+
+  delete:
+    handler: users/delete.delete
+    events:
+    - http:
+        path: /users/{id}
+        method: delete
+        authorizer:
+          type: COGNITO_USER_POOLS
+          authorizerId: !Ref ApiGatewayAuthorizer
+
+resources:
+  Resources:
+    UsersDynamoDbTable:
+      Type: 'AWS::DynamoDB::Table'
+      DeletionPolicy: Retain
+      Properties:
+        AttributeDefinitions:
+          -
+            AttributeName: id
+            AttributeType: S
+        KeySchema:
+          -
+            AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
+
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${opt:stage, self:provider.stage}-${self:service}-user-pool
+        UsernameAttributes:
+          - email
+        AutoVerifiedAttributes:
+          - email
+
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: ${opt:stage, self:provider.stage}-${self:service}-user-pool-client
+        UserPoolId:
+          Ref: CognitoUserPool
+        GenerateSecret: false
+        SupportedIdentityProviders:
+          - COGNITO
+        ExplicitAuthFlows:
+          - ALLOW_CUSTOM_AUTH
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_USER_SRP_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+        AllowedOAuthFlowsUserPoolClient: true
+        AllowedOAuthFlows:
+          - code
+          - implicit
+        AllowedOAuthScopes:
+          - phone
+          - email
+          - openid
+          - profile
+          - aws.cognito.signin.user.admin
+        CallbackURLs:
+          - ${self:provider.environment.FRONTEND_HOST}
+        LogoutURLs:
+          - ${self:provider.environment.FRONTEND_HOST}
+
+    CognitoUserPoolClientWeb:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: ${opt:stage, self:provider.stage}-${self:service}-user-pool-client-web
+        UserPoolId:
+          Ref: CognitoUserPool
+        GenerateSecret: true
+        SupportedIdentityProviders:
+          - COGNITO
+        ExplicitAuthFlows:
+          - ALLOW_CUSTOM_AUTH
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_USER_SRP_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+        AllowedOAuthFlowsUserPoolClient: true
+        AllowedOAuthFlows:
+          - code
+          - implicit
+        AllowedOAuthScopes:
+          - phone
+          - email
+          - openid
+          - profile
+          - aws.cognito.signin.user.admin
+        CallbackURLs:
+          - ${self:provider.environment.FRONTEND_HOST}
+        LogoutURLs:
+          - ${self:provider.environment.FRONTEND_HOST}
+
+    CognitoUserPoolDomain:
+      Type: AWS::Cognito::UserPoolDomain
+      Properties:
+        UserPoolId:
+          Ref: CognitoUserPool
+        Domain: !Sub '${opt:stage, self:provider.stage}-${self:service}-${AWS::AccountId}'
+
+    ApiGatewayAuthorizer:
+      DependsOn:
+        - ApiGatewayRestApi
+      Type: AWS::ApiGateway::Authorizer
+      Properties:
+        Name: ${opt:stage, self:provider.stage}-${self:service}-authorizer
+        RestApiId: !Ref ApiGatewayRestApi
+        Type: COGNITO_USER_POOLS
+        AuthorizerResultTtlInSeconds: 300
+        IdentitySource: method.request.header.Authorization
+        ProviderARNs:
+          - !GetAtt CognitoUserPool.Arn
